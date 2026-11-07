@@ -16,6 +16,13 @@ without a message, so a flapping check produces one ⚠ and at most one ✅.
 Retest rules: one 🟡 when an item becomes due, another only when a new item
 joins the due set, and one 🟢 when every announced item has passed again.
 Missing acceptance data is unknown and changes nothing.
+
+Retiring a check: when a check is removed, hosts still running older code
+may keep reporting its codes, and an incident it opened may still be open.
+Codes under a retired prefix are dropped on input. An open incident whose
+only faults were retired codes closes without a ✅, because there is no
+recovery to announce. If it also holds a real fault, that fault keeps its
+normal path and its ✅.
 """
 from __future__ import annotations
 
@@ -40,11 +47,16 @@ def _key(*parts) -> str:
 
 
 class HealthGuard:
-    def __init__(self, state: dict | None = None, *, settle: timedelta = timedelta(minutes=30)):
+    def __init__(self, state: dict | None = None, *, settle: timedelta = timedelta(minutes=30),
+                 retired: tuple[str, ...] = ()):
         self.state = state if state is not None else {}
         self.state.setdefault("incident", None)
         self.state.setdefault("retest", {"announced": []})
         self.settle = settle
+        self.retired = tuple(retired)
+
+    def _is_retired(self, code: str) -> bool:
+        return any(code.startswith(prefix) for prefix in self.retired)
 
     def evaluate(self, faults: dict[str, str] | None, now: datetime) -> list[Notice]:
         """faults maps a code to FAILURE or STALE. None means the check itself could not run."""
@@ -53,14 +65,19 @@ class HealthGuard:
         unknown = {code: kind for code, kind in faults.items() if kind not in (FAILURE, STALE)}
         if unknown:
             raise ValueError(f"unclassified faults: {sorted(unknown)}")
+        faults = {code: kind for code, kind in faults.items() if not self._is_retired(code)}
         failures = sorted(code for code, kind in faults.items() if kind == FAILURE)
         stale = sorted(code for code, kind in faults.items() if kind == STALE)
         return self._incident(failures, now) + self._retest(stale)
 
     def _incident(self, failures: list[str], now: datetime) -> list[Notice]:
         inc = self.state["incident"]
+        if inc is not None and inc["status"] in ("open", "clearing") and self.retired:
+            inc["seen"] = [code for code in inc["seen"] if not self._is_retired(code)]
+            if not inc["seen"]:  # only retired codes held it open: close it, announce nothing
+                inc.update(status="closed", closed_at=now.isoformat(), closed_by="retired_check")
         if failures:
-            if inc is None or inc["status"] == "recovered":
+            if inc is None or inc["status"] in ("recovered", "closed"):
                 inc = {"id": "inc-" + _key(now.isoformat(), failures), "status": "open",
                        "opened_at": now.isoformat(), "seen": list(failures), "reopened": 0}
                 self.state["incident"] = inc
@@ -72,7 +89,7 @@ class HealthGuard:
             inc.pop("clear_since", None)
             inc["seen"] = sorted(set(inc["seen"]) | set(failures))
             return []
-        if inc is None or inc["status"] == "recovered":
+        if inc is None or inc["status"] in ("recovered", "closed"):
             return []
         if inc["status"] == "open":
             inc.update(status="clearing", clear_since=now.isoformat())

@@ -91,6 +91,31 @@ class HealthTests(unittest.TestCase):
         restored = HealthGuard(json.loads(json.dumps(guard.state)))
         self.assertEqual(run(restored, [(10, {"x": FAILURE}), (15, {}), (50, {})]), [(50, "recovered")])
 
+    def test_an_incident_held_open_only_by_a_retired_check_closes_without_a_recovery(self):
+        old = HealthGuard()
+        self.assertEqual(run(old, [(0, {"funding:balance_age": FAILURE})]), [(0, "open")])
+        guard = HealthGuard(old.state, retired=("funding:",))
+        # A host still on older code keeps reporting the retired code; it is dropped on input.
+        notices = run(guard, [(5, {"funding:balance_age": FAILURE}), (60, {}), (600, {})])
+        self.assertEqual(notices, [])
+        self.assertEqual(guard.state["incident"]["closed_by"], "retired_check")
+        self.assertEqual(run(guard, [(700, {"source:mail": FAILURE})]), [(700, "open")])
+
+    def test_a_real_fault_in_the_same_incident_keeps_its_recovery(self):
+        old = HealthGuard()
+        run(old, [(0, {"funding:balance_age": FAILURE, "source:mail": FAILURE})])
+        guard = HealthGuard(old.state, retired=("funding:",))
+        notices = []
+        for minute, faults in [(5, {"funding:balance_age": FAILURE, "source:mail": FAILURE}), (10, {}), (45, {})]:
+            notices += guard.evaluate(faults, T0 + minute * MIN)
+        self.assertEqual([n.kind for n in notices], ["recovered"])
+        self.assertEqual(notices[0].text, "✅ Alert bridge recovered: source:mail")
+
+    def test_a_retired_code_never_opens_an_incident(self):
+        guard = HealthGuard(retired=("funding:",))
+        self.assertEqual(run(guard, [(0, {"funding:balance_age": FAILURE})]), [])
+        self.assertIsNone(guard.state["incident"])
+
 
 if __name__ == "__main__":
     unittest.main()

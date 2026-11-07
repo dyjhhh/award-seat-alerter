@@ -38,8 +38,9 @@ def main():
             c = from_api(api_row(points=points), aliases=ALIASES)
             v = policy.evaluate(c)
             print(f"{points:,} points  score {v.score}  eligible={v.eligible}  {', '.join(v.reasons) or '-'}")
-        v = policy.evaluate(from_api(api_row(program="Harbor Rewards"), aliases=ALIASES))
-        print(f"other program  eligible={v.eligible}  {', '.join(v.reasons)}")
+        v = policy.evaluate(from_api(api_row(flights=["NW 401", "NW 88"], seats=0, currency=None),
+                                     aliases=ALIASES))
+        print(f"unstated fields  eligible={v.eligible}  labels: {', '.join(v.labels)}")
 
         section("3. Wake on three channels; the phone relay is down")
         queue = InboundQueue(root / "inbound.sqlite")

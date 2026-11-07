@@ -1,7 +1,7 @@
 # Award Seat Alerter
 
 **Problem:** scarce inventory from an external provider can appear and vanish within minutes, so an alert only helps if a person hears it in time, and only once.\
-**What it shows:** fixes for four failures in a private monitor: a duplicate wake, an ACK that never stopped the repeats, a one-shot alert that silently stopped, and a false fault that lasted about 32 hours.\
+**What it shows:** fixes for five failures in a private monitor: a duplicate wake, an ACK that never stopped the repeats, a one-shot alert that silently stopped, a false fault that lasted about 32 hours, and a balance check that silently held back real leads.\
 **Run it in about 60 seconds:** clone, then `make test` (Python 3.10+; no third-party packages; synthetic data, sends nothing).
 
 [![tests](https://github.com/dyjhhh/award-seat-alerter/actions/workflows/test.yml/badge.svg)](https://github.com/dyjhhh/award-seat-alerter/actions/workflows/test.yml)
@@ -23,12 +23,12 @@ To run the demo and the unit tests separately:
 
 ```sh
 python3 demo.py
-python3 -m unittest discover -s tests -v   # 66 unittest cases for the seven modules
+python3 -m unittest discover -s tests -v   # 74 unittest cases for the seven modules
 ```
 
 `make test` runs both suites, including 5 cases for the pattern scanner in `tools/`.
 
-The demo reads one seat from an email and from an API row, scores it against a strict threshold, wakes three fake channels while one of them is down, stops on an ACK from the inbound queue, re-arms a one-shot alert that fired twice, and runs 32 hours of health checks that find only an aged physical test. All state lives in a temporary directory.
+The demo reads one seat from an email and from an API row, scores it against a strict threshold, alerts on a seat with three unstated fields and labels them, wakes three fake channels while one of them is down, stops on an ACK from the inbound queue, re-arms a one-shot alert that fired twice, and runs 32 hours of health checks that find only an aged physical test. All state lives in a temporary directory.
 
 ## Decisions worth inspecting
 
@@ -36,7 +36,7 @@ The demo reads one seat from an email and from an API row, scores it against a s
 |---|---|---|
 | The same seat arrives by email and by API, from two overlapping provider alerts, and wakes the operator twice | [`candidates.event_key`](candidates.py) hashes what is bookable (program, route, flights, date, cabin) and ignores source, message and alert group; [`WakeLedger.open`](wake.py) merges a second group into the escalation that already exists | Email and API rows share a key; a different cabin, date or flight does not; the second group returns `MERGED` and nothing extra is sent |
 | A score rounded before comparison ties the threshold, or a tie counts as a pass | [`ValuePolicy.evaluate`](policy.py) compares the exact score with `>`; rounding is for display only | 70,000 points scores exactly 2.50 and fails; 69,999 points passes |
-| A missing point balance is read as zero, or as plenty | Each configured pool must have a known balance; a missing or null balance is `balance_unknown` | Unknown, insufficient and unfundable cases each report their own reason |
+| A gate drops a real lead because the provider left a field out, or because a point balance was unknown or out of date | [`ValuePolicy.evaluate`](policy.py) drops only on a known value that fails a gate. An unstated seat count, fee currency or connection time becomes a label on the alert. Point balances are not an input, and a config that still lists them is refused | A two-leg seat with a hidden seat count and no currency alerts with three labels; a known 361-minute connection, a known short seat count and a known foreign currency still drop |
 | Repeats continue forever, or one dead channel stops the rest | Each channel has a send ceiling and a separate failure budget; a raised exception counts against that channel only | Ceilings of 3, 3 and 2 sends; a raising channel stops at its 2 failures while the others finish |
 | A second process polling the chat bot steals the operator's reply | The bridge never polls the provider; the existing listener appends to [`InboundQueue`](inbound.py) and the bridge gets a read-only view | The reader has no consume or write method; a write through its connection fails; reading leaves the file byte-identical |
 | "ACK later" or "ok" stops the alarm | Only the bare token counts, ignoring case and whitespace | Lookalike replies leave repeats running to the ceiling |
@@ -44,6 +44,7 @@ The demo reads one seat from an email and from an API row, scores it against a s
 | A one-shot alert fired and expired; recreating it from a guess makes duplicates or widens the search | [`RearmGate`](rearm.py): a fresh hit must name the tracked alert; one worker holds a lease; attempts are bounded; the replacement is read back field by field | Disappearance alone opens nothing; a second worker waits for the lease; an attempt past the limit quarantines; a wider or inactive replacement quarantines |
 | The provider's expired page shows no ids, and an alert that fired twice leaves two rows | One row equal to the frozen spec, or 2 to 20 rows that are all identical to it, authorize; anything else is `expired_row_ambiguous` | A differing field, a repeated marker, a missing field, an empty page or 21 rows all quarantine |
 | A flapping check sends ⚠, ✅, ⚠, ✅ | [`HealthGuard`](health.py) sends one ⚠ per incident and holds the ✅ until faults stay clear for 30 minutes; a return inside that window re-opens silently | A five-minute flap for two hours produces one ⚠ and, after it settles, one ✅ |
+| A check is removed, but an incident it opened, or a host still on older code, keeps paging about it | [`HealthGuard`](health.py) drops codes under a retired prefix on input; an incident held open only by them closes with no ✅; a real fault in the same incident keeps its normal ✅ | An incident made only of a retired code closes silently, and the next real fault opens a fresh ⚠ |
 | An aged physical test is reported as a broken pipeline for a day and a half | Faults are classified as `failure` or `stale_evidence`; stale evidence goes to a separate 🟡 retest channel and never opens an incident | 33 hourly checks of an aged phone test send one 🟡 and no ⚠ |
 | A bug or a confusing message leads to a purchase | No booking, holding, payment, transfer, cancellation or contact code exists; [`boundary.py`](boundary.py) refuses those actions and every alert says checkout was not reached | [`tests/test_boundary.py`](tests/test_boundary.py) parses every module and fails on an action-shaped function name or a network import |
 
@@ -51,7 +52,7 @@ Start with [`wake.py`](wake.py) and its [tests](tests/test_wake.py), then [`rear
 
 ## Where it came from
 
-The private monitor reads provider mail and an API feed, wakes the operator through a chat bot, a phone relay and a desktop alarm, and keeps a set of one-shot provider alerts alive. Its scripts are machine-specific and are not published. This edition keeps the decisions and drops the integrations: callers pass dicts and timestamps, transports are objects with a `send` method, and provider writes happen in an adapter that is not here. Several rules come straight from incidents in the private system: a second chat consumer that took replies away from the first, a one-shot alert that fired twice and left two indistinguishable expired rows, and a health check that reported a physical test past its validity as a pipeline fault for about 32 hours.
+The private monitor reads provider mail and an API feed, wakes the operator through a chat bot, a phone relay and a desktop alarm, and keeps a set of one-shot provider alerts alive. Its scripts are machine-specific and are not published. This edition keeps the decisions and drops the integrations: callers pass dicts and timestamps, transports are objects with a `send` method, and provider writes happen in an adapter that is not here. Several rules come straight from incidents in the private system: a second chat consumer that took replies away from the first, a one-shot alert that fired twice and left two indistinguishable expired rows, a health check that reported a physical test past its validity as a pipeline fault for about 32 hours, and a point-balance check that held back real leads whenever a balance was unknown or out of date, and paged about the out-of-date balance as a fault.
 
 ## Scope and limits
 
@@ -59,7 +60,8 @@ The private monitor reads provider mail and an API feed, wakes the operator thro
 - `send` returning `True` means the transport accepted the message. It does not mean a phone rang or a person heard it; physical acceptance is a separate test, which is why the health guard tracks it as evidence that can go stale.
 - The wake ledger and re-arm gate store JSON. The re-arm gate takes a POSIX file lock for each operation; the wake ledger assumes one process. Neither is a distributed queue.
 - An ACK cannot retract a message a transport already accepted, and cannot stop a timer a phone already started.
-- The value score is a points proxy relative to a configured baseline. It is not a cash valuation, and point pools are counted as units, not as equal money.
+- The value score is a points proxy relative to a configured baseline. It is not a cash valuation, and it does not know whether the person can pay for the award.
+- A label means the provider did not state that field. The fee cap is applied to the number as shown even when its currency is missing; the label is the reason to check it.
 - `freshness` trusts the provider's observation time. A clock that is wrong in the provider's favour inside the skew allowance is not detected.
 - Re-arming covers one-shot alerts only. A continuous alert is never touched, and a request never widens a spec: the replacement must equal it.
 - The health guard returns notices; it does not deliver them, retry them or decide what the faults are. A check that could not run is `None`, which changes nothing; alerting on a check that has stopped running is the caller's job.

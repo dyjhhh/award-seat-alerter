@@ -4,6 +4,10 @@ Two sources can report the same seat: a provider email and a polled API row.
 Both become a `Candidate`, and `event_key` ignores which source, which alert
 group and which message produced it, so one seat wakes the operator once.
 Nothing here reads a mailbox or calls a network service; callers pass dicts.
+
+A field the provider left out is unknown, and stays unknown: a missing seat
+count is not one seat, and a fee with no currency is not dollars. A field that
+is present but malformed still raises.
 """
 from __future__ import annotations
 
@@ -32,14 +36,15 @@ class Candidate:
     start: date                  # departure or check-in
     end: date | None             # None for a flight, check-out for a stay
     cabin: str                   # cabin, or room class for a stay
-    quantity: int                # seats or rooms available
+    quantity: int | None         # seats or rooms; None when missing or shown as 0
     points: int                  # per person or per night
     fees_cents: int
-    currency: str
+    currency: str | None         # None when the fees carry no currency
     source: str                  # "email" or "api"
     source_id: str               # message id or API row id
     alert_group: str             # the provider alert that matched
     observed_at: datetime        # provider observation time, not receipt time
+    connection_minutes: int | None = None  # longest connection; 0 nonstop, None unknown
     extra: dict = field(default_factory=dict, compare=False)
 
     @property
@@ -143,9 +148,19 @@ def _build(fields: dict, *, source, source_id, aliases) -> Candidate:
     start = _date(fields.get("date") or fields.get("check_in"), "date")
     if end is not None and end <= start:
         raise CandidateError("check_out must follow check_in")
-    currency = str(fields.get("currency") or "").strip().upper()
-    if not re.fullmatch(r"[A-Z]{3}", currency):
+    currency = str(fields.get("currency") or "").strip().upper() or None
+    if currency is not None and not re.fullmatch(r"[A-Z]{3}", currency):
         raise CandidateError("currency malformed")
+    # Some feeds show a hidden seat count as 0, so 0 is unknown here, not sold out.
+    count = fields.get("seats", fields.get("rooms"))
+    blank = count is None or not str(count).strip()
+    quantity = None if blank else _positive_int(count, "quantity", allow_zero=True) or None
+    connection = None
+    if kind == "flight":
+        raw = fields.get("connection_minutes")
+        connection = (0 if len(items) == 1 else
+                      None if raw is None or not str(raw).strip()
+                      else _positive_int(raw, "connection_minutes", allow_zero=True))
     group = str(fields.get("alert_group") or "").strip()
     if not group:
         raise CandidateError("alert group missing")
@@ -153,11 +168,12 @@ def _build(fields: dict, *, source, source_id, aliases) -> Candidate:
         kind=kind, program=_program(fields.get("program"), aliases), origin=origin,
         destination=destination, items=items, start=start, end=end,
         cabin=" ".join(str(fields.get("cabin") or "").split()).title() or "Standard",
-        quantity=_positive_int(fields.get("seats", fields.get("rooms", 1)), "quantity"),
+        quantity=quantity,
         points=_positive_int(fields.get("points"), "points"),
         fees_cents=_cents(fields.get("fees", "0")), currency=currency,
         source=source, source_id=source_id, alert_group=group,
-        observed_at=_moment(fields.get("observed_at"), "observed_at"))
+        observed_at=_moment(fields.get("observed_at"), "observed_at"),
+        connection_minutes=connection)
 
 
 def from_api(row: dict, *, aliases: dict[str, str]) -> Candidate:

@@ -67,6 +67,14 @@ class BoundaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             handoff(c, v, "https://awards.example.com/x", allowed_hosts=OFFICIAL_HOSTS, verification="BOOKED")
 
+    def test_handoff_names_every_unconfirmed_field(self):
+        c = from_api(api_row(flights=["NW 401", "NW 88"], seats=0, currency=None), aliases=ALIASES)
+        v = ValuePolicy.from_config(POLICY).evaluate(c)
+        text = handoff(c, v, "https://awards.example.com/search?id=row-7781", allowed_hosts=OFFICIAL_HOSTS)
+        self.assertIn("89.40 (currency not stated)", text)
+        self.assertIn("Unconfirmed, check on the official page: fee_currency_unconfirmed, "
+                      "seats_unconfirmed, connection_unconfirmed", text)
+
 
 if __name__ == "__main__":
     unittest.main()

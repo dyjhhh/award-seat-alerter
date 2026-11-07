@@ -14,11 +14,7 @@ POLICY = {
     "window": ["2031-06-01", "2031-06-30"],
     "max_fees_cents": 15_000,
     "currency": "USD",
-    "funding": {"Northwind Miles": ["northwind-balance", "bank-pool-a"],
-                "Harbor Rewards": ["harbor-balance"],
-                "Lantern Stays": ["lantern-balance"]},
-    "balances": {"northwind-balance": 40_000, "bank-pool-a": 60_000,
-                 "harbor-balance": None, "lantern-balance": 180_000},
+    "max_connection_minutes": 360,
 }
 
 

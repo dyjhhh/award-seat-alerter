@@ -51,6 +51,23 @@ class CandidateTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(CandidateError):
                 from_api(api_row(**change), aliases=ALIASES)
 
+    def test_a_missing_or_hidden_count_is_unknown_not_one(self):
+        self.assertIsNone(parse_email(email(fields={"Seats": ""})).quantity)
+        self.assertIsNone(from_api(api_row(seats=0), aliases=ALIASES).quantity)
+        row = api_row()
+        del row["seats"]
+        self.assertIsNone(from_api(row, aliases=ALIASES).quantity)
+        self.assertEqual(from_api(api_row(seats=3), aliases=ALIASES).quantity, 3)
+
+    def test_a_missing_currency_or_connection_is_unknown_but_a_malformed_one_raises(self):
+        self.assertIsNone(from_api(api_row(currency=None), aliases=ALIASES).currency)
+        self.assertEqual(from_api(api_row(), aliases=ALIASES).connection_minutes, 0)  # nonstop
+        two = from_api(api_row(flights=["NW 401", "NW 88"]), aliases=ALIASES)
+        self.assertIsNone(two.connection_minutes)
+        for change in ({"currency": "dollars"}, {"flights": ["NW 401", "NW 88"], "connection_minutes": "long"}):
+            with self.subTest(change=change), self.assertRaises(CandidateError):
+                from_api(api_row(**change), aliases=ALIASES)
+
     def test_a_stay_is_keyed_by_property_room_and_nights(self):
         stay = dict(kind="stay", program="Lantern Stays", property="LAKESIDE-01", room="Deluxe King",
                     check_in="2031-06-12", check_out="2031-06-15", cabin="Suite", rooms=1,

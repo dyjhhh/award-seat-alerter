@@ -49,7 +49,9 @@ def handoff(c: Candidate, verdict: Verdict, url: str, *, allowed_hosts: frozense
             else f"{c.origin} {c.items[0]}")
     return "\n".join([
         f"{c.program}: {what} {c.cabin}, {when}",
-        f"{c.points:,} points + {c.fees_cents / 100:.2f} {c.currency}, score {verdict.score}",
+        f"{c.points:,} points + {c.fees_cents / 100:.2f} {c.currency or '(currency not stated)'}, "
+        f"score {verdict.score}",
+        *([f"Unconfirmed, check on the official page: {', '.join(verdict.labels)}"] if verdict.labels else []),
         f"Official page: {official_link(url, allowed_hosts)}",
         f"Verification: {verification}. Checkout: NOT REACHED.",
         "Nothing was booked, held, paid or transferred."])

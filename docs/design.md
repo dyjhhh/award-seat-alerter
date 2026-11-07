@@ -35,7 +35,11 @@ score = baseline_points * cabin_weight / points
 
 The comparison is `exact_score > threshold`. The displayed score is rounded to two places afterwards. Rounding first would turn 2.500036 into 2.50 and fail a candidate that is above the threshold. A tie fails by design: the threshold is the price the operator has already said is not good enough.
 
-Funding is a list of named pools per program. All of them must have a known balance; a missing or `null` balance stops evaluation with `balance_unknown` rather than being treated as zero or as enough. A stay needs points for every night. The policy reports every failed gate, not just the first, so a rejected candidate explains itself.
+The policy reports every failed gate, not just the first, so a rejected candidate explains itself.
+
+Missing data is handled in two ways, and the split is deliberate. A known value that fails a gate drops the candidate: a 361-minute connection against a 360-minute limit, one seat when two are needed, fees in another currency. A value the provider did not state becomes a label on the alert instead: `seats_unconfirmed`, `fee_currency_unconfirmed`, `connection_unconfirmed`. Some feeds show a hidden seat count as 0, so 0 is read as unknown. The person checks a label on the official page in a minute; a silent drop costs a seat that nobody knew existed.
+
+Both this edition and the private monitor used to gate on point balances. Every pool needed a known balance large enough for the award, and the private monitor also required it to be recent. In practice that check failed in the expensive direction: when a balance was unknown or out of date, real leads were held back instead of alerting, and the out-of-date balance itself paged as a fault. Balances were reference data used as a gate. They are now out of the policy, and a config that still lists `balances` or `funding` is refused rather than silently ignored, because whoever wrote it expects them to gate.
 
 ## Wake ledger
 
@@ -91,6 +95,8 @@ Two kinds of fault, two channels:
 
 The split came from an incident: an aged physical test was folded into the same fault list as real failures and reported as a broken pipeline for about 32 hours. Nothing was broken. The operator needed a reminder to test, not an alarm.
 
+Removing a check needs its own rule. A host still on older code can keep reporting the removed check's codes, and an incident that only that check opened can still be open. `HealthGuard(retired=...)` drops those codes on input. An incident whose only faults were retired codes closes with `closed_by: retired_check` and no ✅, because nothing recovered. If the same incident also holds a real fault, that fault keeps its normal path and its ✅.
+
 Within an incident, faults may come and go without messages. When the last fault clears, the incident moves to `clearing`. A fault returning inside the settle window puts it back to `open` and counts a re-open; only an incident that stays clear for the full window sends ✅. Notice keys are deterministic so a sender can deliver idempotently.
 
 ## Irreversible-action boundary
@@ -103,4 +109,5 @@ The bridge can notify, open an official page and re-arm an alert. Each of those 
 - State is local JSON and SQLite. The re-arm gate locks per operation; the wake ledger assumes one process.
 - Transports report acceptance only. Hearing an alarm is verified by a physical test, tracked as evidence that ages.
 - Quarantine is a stop, not a retry. A person decides what an ambiguous page means.
-- Unknown is never upgraded: an unknown balance fails funding, an unrunnable health check changes nothing, an unknown action is refused.
+- Unknown is never upgraded where the system acts or reports health: an unrunnable health check changes nothing, and an unknown action is refused.
+- For lead data, unknown is labelled, not dropped. The cost of a wrong alert is a minute of checking; the cost of a dropped lead is the lead.
