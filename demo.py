@@ -7,8 +7,10 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parent / "tests"))
 
 from boundary import handoff  # noqa: E402
+from cabins import cabin_verdict, segments_from_legs  # noqa: E402
 from candidates import from_api, from_email, freshness  # noqa: E402
-from fixtures import ALIASES, OFFICIAL_HOSTS, POLICY, SENDERS, SPEC, T0, FakeTransport, api_row, email  # noqa: E402
+from fixtures import (ALIASES, OFFICIAL_HOSTS, POLICY, SENDERS, SPEC, T0, ZONES, FakeTransport,  # noqa: E402
+                      api_row, email, feeder_then_long_haul)
 from health import FAILURE, STALE, HealthGuard  # noqa: E402
 from inbound import InboundQueue  # noqa: E402
 from policy import ValuePolicy  # noqa: E402
@@ -41,6 +43,11 @@ def main():
         v = policy.evaluate(from_api(api_row(flights=["NW 401", "NW 88"], seats=0, currency=None),
                                      aliases=ALIASES))
         print(f"unstated fields  eligible={v.eligible}  labels: {', '.join(v.labels)}")
+        for name, legs in (("timed Economy long haul", feeder_then_long_haul()),
+                           ("hub time zone unknown", feeder_then_long_haul(hub="QZH")),
+                           ("long haul arrival missing", feeder_then_long_haul(arrives=None))):
+            c = cabin_verdict("Business", segments_from_legs(legs, ZONES), mixed_disclosed=True)
+            print(f"Business fare, {name:26} eligible={c.eligible}  {c.reason}  {', '.join(c.labels)}")
 
         section("3. Wake on three channels; the phone relay is down")
         queue = InboundQueue(root / "inbound.sqlite")

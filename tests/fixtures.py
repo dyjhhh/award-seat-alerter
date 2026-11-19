@@ -39,6 +39,23 @@ def email(**overrides):
     return message
 
 
+# Known time zones as fixed offsets. QZH is a hub whose time zone is deliberately not listed.
+ZONES = {"PAV": timezone(timedelta(hours=2)), "KRN": timezone(timedelta(hours=3)),
+         "LMB": timezone(timedelta(hours=-5))}
+
+
+def leg(origin, destination, cabin, departs, arrives):
+    return {"origin": origin, "destination": destination, "cabin": cabin,
+            "departs": departs, "arrives": arrives}
+
+
+def feeder_then_long_haul(feeder="Business", long_haul="Economy", hub="KRN", **long_haul_changes):
+    """A 155-minute feeder into the hub, then an 805-minute long haul (when the hub is KRN)."""
+    second = leg(hub, "LMB", long_haul, "2031-06-12T13:40:00", "2031-06-12T19:05:00")
+    second.update(long_haul_changes)
+    return [leg("PAV", hub, feeder, "2031-06-12T08:00:00", "2031-06-12T11:35:00"), second]
+
+
 SPEC = {"label": "demo-business", "program": "Northwind Miles", "origin": "PAV", "destination": "LMB",
         "date_from": "2031-06-10", "date_to": "2031-06-14", "cabins": ["Business"],
         "max_points": 70_000, "max_fees_cents": 15_000}

@@ -41,6 +41,12 @@ Missing data is handled in two ways, and the split is deliberate. A known value 
 
 Both this edition and the private monitor used to gate on point balances. Every pool needed a known balance large enough for the award, and the private monitor also required it to be recent. In practice that check failed in the expensive direction: when a balance was unknown or out of date, real leads were held back instead of alerting, and the out-of-date balance itself paged as a fault. Balances were reference data used as a gate. They are now out of the policy, and a config that still lists `balances` or `funding` is refused rather than silently ignored, because whoever wrote it expects them to gate.
 
+### Mixed cabins
+
+A fare sold as Business can put Business on a short feeder and Economy on the long haul. [`cabins.py`](../cabins.py) judges the long haul, which is the longest segment. A segment has a length only when both airports' time zones are known and both wall-clock times parse into a positive span. The long haul is then either an untimed segment or the longest timed one, so those are the only candidates: if they are all premium or all not premium, the answer is known; otherwise it is unprovable.
+
+Unprovable alerts with `long_haul_cabin_unconfirmed` and every segment's cabin, for the same reason as the other labels. But the rule has to be scoped to the gap it was written for. A hub missing from the time-zone table is a gap in the alerter's own reference data. A segment between two known time zones with a missing, unparsable or non-positive time is bad provider data. Treating the second like the first turned the most common trap, a short premium feeder plus an Economy long haul, into a wake as soon as the provider dropped the long haul's arrival time: the untimed Economy leg and the timed Business feeder disagree, so the verdict reads as unprovable. In a mixed-cabin itinerary, bad timing therefore makes the whole segment list unknown, and a fare that discloses a mix with unknown segments is dropped. A single-cabin itinerary is not affected, because every candidate agrees.
+
 ## Wake ledger
 
 Each escalation has one record per channel with two counters, `sent` and `failures`, and two ceilings. They are separate on purpose. If failures counted against the send ceiling, a dead channel would use up its repeats without ever reaching anyone; if sends counted against the failure budget, a working channel would be cut off early.
