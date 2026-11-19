@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).resolve().parent / "tests"))
 
 from boundary import handoff  # noqa: E402
-from cabins import cabin_verdict, segments_from_legs  # noqa: E402
+from cabins import verdict_from_legs  # noqa: E402
 from candidates import from_api, from_email, freshness  # noqa: E402
 from fixtures import (ALIASES, OFFICIAL_HOSTS, POLICY, SENDERS, SPEC, T0, ZONES, FakeTransport,  # noqa: E402
                       api_row, email, feeder_then_long_haul)
@@ -46,7 +46,7 @@ def main():
         for name, legs in (("timed Economy long haul", feeder_then_long_haul()),
                            ("hub time zone unknown", feeder_then_long_haul(hub="QZH")),
                            ("long haul arrival missing", feeder_then_long_haul(arrives=None))):
-            c = cabin_verdict("Business", segments_from_legs(legs, ZONES), mixed_disclosed=True)
+            c = verdict_from_legs("Business", legs, ZONES, mix_flagged=True)
             print(f"Business fare, {name:26} eligible={c.eligible}  {c.reason}  {', '.join(c.labels)}")
 
         section("3. Wake on three channels; the phone relay is down")

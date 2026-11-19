@@ -12,7 +12,7 @@ zones are known. Two kinds of gap look alike and must be kept apart:
   unknown, but nothing is wrong with the data. If the long-haul cabin cannot
   be proven either way, the itinerary alerts with the label
   `long_haul_cabin_unconfirmed` and lists every segment's cabin. A person
-  checks it in a minute; a dropped real upgrade is gone.
+  checks it in a minute; a dropped real premium seat is gone.
 - A segment between two known time zones with a missing, unparsable or
   non-positive time. That is bad provider data, not an unknown hub. In a
   mixed-cabin itinerary the whole segment list is treated as unknown, so a
@@ -20,6 +20,10 @@ zones are known. Two kinds of gap look alike and must be kept apart:
   feeder plus an Economy long haul whose arrival time went missing would come
   out as "unprovable" and wake the person for a seat that is Economy where it
   matters.
+
+A fare's own legs can show the mix even when its mixed-cabin flag is off.
+`verdict_from_legs` counts that as disclosed, so the trap above cannot come
+back through a missing flag.
 
 A known Economy long haul is always dropped. Nothing is guessed from
 geography.
@@ -128,3 +132,17 @@ def cabin_verdict(fare_cabin: str, segments: tuple[Segment, ...] | None, *,
     if answer is False:
         return CabinVerdict(False, "long_haul_not_premium", (), detail)
     return CabinVerdict(True, "long_haul_unverified", ("long_haul_cabin_unconfirmed",), detail)
+
+
+def legs_show_mix(legs) -> bool:
+    """True when the provider's own legs carry more than one cabin."""
+    if not isinstance(legs, (list, tuple)):
+        return False
+    return len({_cabin(x.get("cabin")) for x in legs if isinstance(x, dict)} - {None}) > 1
+
+
+def verdict_from_legs(fare_cabin: str, legs, zones: dict[str, tzinfo], *,
+                      mix_flagged: bool) -> CabinVerdict:
+    """The entry point for provider data. Legs that carry two cabins disclose a mix."""
+    return cabin_verdict(fare_cabin, segments_from_legs(legs, zones),
+                         mixed_disclosed=mix_flagged or legs_show_mix(legs))

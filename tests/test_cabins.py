@@ -1,11 +1,11 @@
 import unittest
 
-from cabins import Segment, cabin_verdict, long_haul_is_premium, segments_from_legs
+from cabins import Segment, cabin_verdict, long_haul_is_premium, segments_from_legs, verdict_from_legs
 from fixtures import ZONES, feeder_then_long_haul, leg
 
 
 def verdict(legs, fare="Business", disclosed=True):
-    return cabin_verdict(fare, segments_from_legs(legs, ZONES), mixed_disclosed=disclosed)
+    return verdict_from_legs(fare, legs, ZONES, mix_flagged=disclosed)
 
 
 class SegmentTests(unittest.TestCase):
@@ -83,8 +83,16 @@ class BadTimingTests(unittest.TestCase):
         self.assertEqual(cabin_verdict("Business", as_if_untimed, mixed_disclosed=True).reason,
                          "long_haul_unverified")
 
+    def test_legs_that_show_a_mix_disclose_it_when_the_fare_flag_is_off(self):
+        for name, change in self.BAD.items():
+            with self.subTest(name):
+                v = verdict(feeder_then_long_haul(**change), disclosed=False)
+                self.assertFalse(v.eligible)
+                self.assertEqual(v.reason, "mixed_cabin_segments_unknown")
+
     def test_an_undisclosed_fare_with_unknown_segments_alerts_with_a_label(self):
-        v = verdict(feeder_then_long_haul(arrives=None), disclosed=False)
+        # The long haul has no cabin, so neither the flag nor the legs show a mix.
+        v = verdict(feeder_then_long_haul(long_haul=""), disclosed=False)
         self.assertTrue(v.eligible)
         self.assertEqual(v.labels, ("segment_cabins_unconfirmed",))
 
